@@ -1,0 +1,218 @@
+---
+title: 'An assessment of qPCR accuracy based on RNA-seq'
+author: "Valeriia Sherina"
+date: "`r Sys.Date()`"
+output: BiocStyle::html_document
+---
+
+# A Motivation on the project
+
+The Sequencing Quality Control (SEQC) project is coordinated by the US FDA. Examining Illumina HiSeq, Life Technologies SOLiD and Roche 454 platforms at multiple laboratory sites using reference RNA samples with built-in controls, authors Assess RNA sequencing (RNA-seq) performance for junction discovery and diﬀerential expression proﬁling. Using complementary metrics, compare it to microarray data, and compare it to quantitative PCR (qPCR) data.
+The paper ”A comprehensive assessment of RNA-seq accuracy, reproducibility and information content by the sequencing quality control consortium.” Nature Biotechnology (2014), by SEQC/MAQC-III Consortium, inspired to think about the assessment of qPCR accuracy based on RNA-seq.
+
+# ”Gold” standard
+
+Validation has been an important part in RNA-seq publication. The diﬀerentially expressed genes (at least some) identiﬁed using RNA-seq are often validated using q-PCR. 
+
+One challenge of qPCR data is the presence of non-detects (those reactions failing to attain the expression threshold). While most current software replaces these non-detects with the maximum possible Ct value, recent work has shown that this introduces large biases in estimation of both absolute and diﬀerential expression [2]. Considerable diﬀerences in expression level measurements from diﬀerent PCR-based assays can be observed.
+
+I am going to identify speciﬁc genes, where results of RNA-seq and q-PCR disagree. 
+If the disagreement caused by low detection in q-PCR experiment, it may be possible to estimate non-detected Ct values, and repeat the validation procedure. 
+
+# Getting Data
+
+## qPCR Data
+Data downloaded from GEO
+```{r, echo=TRUE}
+library(GEOquery)
+library(HTqPCR)
+library(nondetects)
+library("seqc")
+library("TaqManRNAseq")
+# Get the data from GEO
+gseA2 <- getGEO("GPL4097",GSEMatrix=TRUE) 
+gsms <- Meta(gseA2)$sample_id
+gsm1 <- getGEO(GEO=gsms[1]) 
+# back calculate Ct expression value
+dct <- nd <- matrix(nrow=nrow(Table(gsm1)), ncol=length(gsms))
+for(k in 1:length(gsms)){
+  tmp <- getGEO(GEO=gsms[k])
+  dct[,k] <- as.numeric(Table(tmp)$VALUE)
+  nd[,k] <- Table(tmp)$Flag_Detection
+}
+# gene names
+gene<-as.vector(Table(gseA2)$ORF)
+geneContr<-which(gene=="POLR2A")
+for(i in 1:length(gene)) {
+  gene[i]<-paste0(gene[i],"_",i)
+}
+# after the data was saved in the file
+# TaqManDat<-list(dct=dct, nd=nd, gene=gene)
+# safe the data
+# save(TaqManDat, file = "TaqManDat.rda")
+```
+This data set can be loaded from the package dirrectly
+```{r, echo=TRUE}
+data("TaqManDat")
+dct <- TaqManDat$dct
+nd  <- TaqManDat$nd
+gene<- TaqManDat$gene
+```
+
+## RNAseq Data
+RNA-seq data was prosessed to CPM (counts per million), and then the mean of log2(CPM) was calculated.
+```{r, echo=TRUE}
+RNAcounts<-apply(ILM_refseq_gene_COH[,5:132],2,sum)/10^6
+RNAseqCPM<-t(t(ILM_refseq_gene_COH[,5:132])/RNAcounts)
+grp<-as.numeric(as.factor(gsub("\\_.+","",colnames(RNAseqCPM))))
+seqGeneSum<-t(apply(log(RNAseqCPM+1),1,by,grp,mean))
+rownames(seqGeneSum)<-ILM_refseq_gene_COH$Symbol
+# after we saved the data in the file
+# save(seqGeneSum, file = "seqGeneSum.rda")
+```
+This data set can be loaded from the package dirrectly 
+```{r, echo=TRUE}
+data("seqGeneSum")
+```
+Create 11 datasets with all the genes
+```{r, echo=TRUE}
+for(i in c(1, 97, 193, 289, 385, 481, 577, 673, 769, 865, 961)) {
+  assign(paste0("tst_",i),value=combData(dct,nd,i,gene, delNondet = FALSE))
+}
+tst<-rbind(tst_1, tst_97, tst_193, tst_289, tst_385, tst_481, tst_577, tst_673, tst_769, tst_865, tst_961)
+dim(tst)
+``` 
+Create 11 class qPCR datasets
+```{r, echo=TRUE}
+tst1  <-qPCRdata("tst_1","POLR2A_42")
+tst97 <-qPCRdata("tst_97","POLR2A_98")
+tst193<-qPCRdata("tst_193","POLR2A_194")
+tst289<-qPCRdata("tst_289","POLR2A_311")
+tst385<-qPCRdata("tst_385","POLR2A_412")
+tst481<-qPCRdata("tst_481","POLR2A_516")
+tst577<-qPCRdata("tst_577","POLR2A_579")
+tst673<-qPCRdata("tst_673","POLR2A_705")
+tst769<-qPCRdata("tst_769","POLR2A_772")
+tst865<-qPCRdata("tst_865","POLR2A_866")
+tst961<-qPCRdata("tst_961","POLR2A_971")
+```
+Combine all the plates into one dataset
+```{r, echo=TRUE}
+data1 <- qPCRexprs(tst1,tst97)
+data1 <- qPCRexprs(data1,tst193)
+data1 <- qPCRexprs(data1,tst289)
+data1 <- qPCRexprs(data1,tst385)
+data1 <- qPCRexprs(data1,tst481)
+data1 <- qPCRexprs(data1,tst577)
+data1 <- qPCRexprs(data1,tst673)
+data1 <- qPCRexprs(data1,tst769)
+data1 <- qPCRexprs(data1,tst865)
+data1 <- qPCRexprs(data1,tst961)
+```
+## Correlation plots
+```{r, echo=TRUE}
+par(mfrow=c(2,2))
+GMData<-CommonGenesCorPlot(data1,seqGeneSum, extrVal=F)
+``` 
+Now 11 data sets, removing genes, non-detected in all the samples and all the replicates.
+```{r, echo=TRUE}
+for(i in c(1, 97, 193, 289, 385, 481, 577, 673, 769, 865, 961)) {
+  assign(paste0("tst_",i),value=combData(dct,nd,i,gene, delNondet = TRUE))
+}
+# create 11 class qPCR-datasets 
+tst1  <-qPCRdata("tst_1","POLR2A_42")
+tst97 <-qPCRdata("tst_97","POLR2A_98")
+tst193<-qPCRdata("tst_193","POLR2A_194")
+tst289<-qPCRdata("tst_289","POLR2A_311")
+tst385<-qPCRdata("tst_385","POLR2A_412")
+tst481<-qPCRdata("tst_481","POLR2A_516")
+tst577<-qPCRdata("tst_577","POLR2A_579")
+tst673<-qPCRdata("tst_673","POLR2A_705")
+tst769<-qPCRdata("tst_769","POLR2A_772")
+tst865<-qPCRdata("tst_865","POLR2A_866")
+tst961<-qPCRdata("tst_961","POLR2A_971")
+# combine all the plates into one dataset
+data1 <- qPCRexprs(tst1,tst97)
+data1 <- qPCRexprs(data1,tst193)
+data1 <- qPCRexprs(data1,tst289)
+data1 <- qPCRexprs(data1,tst385)
+data1 <- qPCRexprs(data1,tst481)
+data1 <- qPCRexprs(data1,tst577)
+data1 <- qPCRexprs(data1,tst673)
+data1 <- qPCRexprs(data1,tst769)
+data1 <- qPCRexprs(data1,tst865)
+data1 <- qPCRexprs(data1,tst961)
+par(mfrow=c(2,2))
+GMData<-CommonGenesCorPlot(data1,seqGeneSum, extrVal=F)
+```
+Since there are non-detected values in the data, we can impute those values.
+
+```{r, echo=TRUE}
+# create starting PYFIT based on all the data (borrowing info from other genes)
+allData<-rbind(tst_1,tst_97,tst_193,tst_289,tst_385,tst_481,tst_577,tst_769)
+gavg<-t(apply(allData,1,by,pData(tst1)$sampleType, median))
+p.nd<-t(apply(allData==35,1, by,pData(tst1)$sampleType, mean))
+pyfit <- glm(as.vector(p.nd)~as.vector(gavg), family=binomial(link=logit), 
+             weights=rep(4,length(gavg)))
+```
+
+```{r, echo=TRUE}
+# impute nondetected values using qpcrImpute function from package "nondetects" based on PYFIT
+tst1Impute2<-qpcrImpute(tst1, groupVars=c("sampleType"), 
+                        outform="Single", pyfit=pyfit)
+tst97Impute<-qpcrImpute(tst97, groupVars=c("sampleType"), 
+                        outform="Single", pyfit=pyfit)
+tst193Impute<-qpcrImpute(tst193, groupVars=c("sampleType"), 
+                        outform="Single", pyfit=pyfit)
+tst289Impute<-qpcrImpute(tst289, groupVars=c("sampleType"), 
+                        outform="Single", pyfit=pyfit)
+tst385Impute<-qpcrImpute(tst385, groupVars=c("sampleType"), 
+                        outform="Single", pyfit=pyfit)
+tst481Impute<-qpcrImpute(tst481, groupVars=c("sampleType"), 
+                        outform="Single", pyfit=pyfit)
+tst577Impute<-qpcrImpute(tst577, groupVars=c("sampleType"), 
+                        outform="Single", pyfit=pyfit)
+tst673Impute<-qpcrImpute(tst673, groupVars=c("sampleType"), 
+                        outform="Single", pyfit=pyfit)
+tst769Impute<-qpcrImpute(tst769, groupVars=c("sampleType"), 
+                        outform="Single", pyfit=pyfit)
+tst865Impute<-qpcrImpute(tst865, groupVars=c("sampleType"), 
+                        outform="Single", pyfit=pyfit)
+tst961Impute<-qpcrImpute(tst961, groupVars=c("sampleType"), 
+                        outform="Single", pyfit=pyfit)
+```
+
+```{r, echo=TRUE}
+# combine all the plates into one dataset
+data2 <- qPCRexprs(tst1Impute2,tst97Impute)
+data2 <- qPCRexprs(data2,tst193Impute)
+data2 <- qPCRexprs(data2,tst289Impute)
+data2 <- qPCRexprs(data2,tst385Impute)
+data2 <- qPCRexprs(data2,tst481Impute)
+data2 <- qPCRexprs(data2,tst577Impute)
+data2 <- qPCRexprs(data2,tst673Impute)
+data2 <- qPCRexprs(data2,tst769Impute)
+data2 <- qPCRexprs(data2,tst865Impute)
+data2 <- qPCRexprs(data2,tst961Impute)
+```
+
+```{r, echo=TRUE}
+# create plots
+par(mfrow=c(2,2))
+GMData<-CommonGenesCorPlot(data2, seqGeneSum, extrVal=F)
+par(mfrow=c(1,1))
+```
+
+# Results 
+Several not matching genes were identiﬁed during this project. 
+Correlation between RNAseq and qPCR results found to be similar to the results from the motivating paper. 
+The R package ”TaqManRNAseq” was created. It contains total of 5 functions. 
+This project gives a motivation for future research in this area.
+
+# Funding
+There was no additional funding provided for this project.
+
+# Session Info
+```{r, echo=TRUE}
+sessionInfo()
+``` 

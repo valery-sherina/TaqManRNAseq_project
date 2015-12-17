@@ -1,0 +1,22 @@
+Package: TaqManRNAseq
+Version: 0.0.1
+Date: 2015-12-16
+Title: RNAseq and qPCR signal comparison
+Author: Valeriia Sherina <valery.sherina@gmail.com>
+Description: What the package does (one paragraph).
+Maintainer: Valeriia Sherina <valery.sherina@gmail.com>
+Depends:
+    R (>= 3.2),
+    Biobase (>= 2.22.0)
+Imports:
+    GEOquery,
+    HTqPCR (>= 1.16.0),
+    nondetects,
+    seqc
+Suggests:
+    BiocStyle (>= 1.0.0),
+    RUnit,
+    BiocGenerics (>= 0.8.0)
+biocViews: Software, GeneExpression, Technology, qPCR, RNAseq,
+License: GPL-3
+RoxygenNote: 5.0.1.9000
